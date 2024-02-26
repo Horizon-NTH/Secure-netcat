@@ -37,20 +37,20 @@ function send()
 # ARGS: 1->Key to send
 function send_key()
 {
-	echo "$(printf '%q' "$(cat ._key/$1)")"
+	echo $(printf '%q' "$(cat ._key/$1)")
 }
 
 # Function to get the encrypted password
 function get_crypt_passwd()
 {
-	echo -n "$(cat ._key/passwd.crypt)"
+	echo -n $(cat ._key/passwd.crypt)
 }
 
 # Function to set the encrypted password
 # ARGS: 1->New encrypted password 2->public key to encrypt
 function set_crypt_passwd()
 {
-	crypt "$1" "$2"> ._key/passwd.crypt
+	crypt $1 $2 > ._key/passwd.crypt
 }
 
 # Function to test the entered password
@@ -98,15 +98,15 @@ function parser()
         echo -e "$input" > ._key/client.pub
 		send_key server.pub
     else
-		if [ -n "$input" ]
+		if ! [ -z "$input" ]
 		then
-			input=$(decrypt "$input" server.pem)
+			input=$(decrypt $input server.pem)
 			if [[ ${input:0:3} == ":§:" ]]
 			then
 				input=${input#":§:"}
         		echo -e "\e[31m@server\e[0m:\e[34m$(date)\e[0m! $input" >&2
 			else
-				command=$(printf '%q' "$(eval "$input" 2>&1)")
+				command=$(printf '%q' "$(eval $input 2>&1)")
         		send client.pub "$command"
 			fi
 		fi
@@ -128,22 +128,34 @@ then
 	rm ./.fifo
 fi
 
-# Create a FIFO fil
-mkfifo ".fifo"
+# Create a FIFO file
+mkfifo ./.fifo
 
 echo ">>>Initialization"
 
-# Generate the server key pair and change the password if the '-n' option is provided
-for args in "$@"
-do
-	if [ "$args" = "-n" ]
-	then
-		gen_key server.pem server.pub
-		until set_passwd
-		do
-			true
-		done
-	fi
+# Parse arguments
+ip=localhost
+port=8080
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -n)	#Set a new password for the server
+			gen_key server.pem server.pub
+			until set_passwd
+			do
+				true
+			done
+			;;
+        -i)	#Set a specific ip for the server
+			shift
+			ip="$1"
+			;;
+		-p)	#Set a specific port for the server
+			shift
+			port="$1"
+			;;
+    esac
+    shift
 done
 
 # Check if there is existing keys and password
@@ -161,5 +173,5 @@ echo ">>>Server initialized"
 # Continuously listen for incoming connections and process them
 while true
 do
-	nc -l localhost 12345 < ./.fifo | server > ./.fifo
+	nc -l $ip $port < ./.fifo | server > ./.fifo
 done

@@ -16,14 +16,14 @@ function gen_key()
 # ARGS: 1->message 2->public key
 function crypt()
 {
-	echo -n "$1" | openssl pkeyutl -encrypt -pubin -inkey ._key/"$2" | base64 -w 0
+	echo -n $1 | openssl pkeyutl -encrypt -pubin -inkey ._key/$2 | base64 -w 0
 }
 
 # Function to decrypt a message using RSA private key
 # ARGS: 1->message 2->private key
-function decrypt()
+function uncrypt()
 {
-	echo -n $1 | base64 -d | openssl pkeyutl -decrypt -inkey ._key/"$2"
+	echo -n $1 | base64 -d | openssl pkeyutl -decrypt -inkey ._key/$2
 }
 
 # Function to send an encrypted message using the recipient's public key
@@ -37,11 +37,11 @@ function send()
 # ARGS: 1->Key to send
 function send_key()
 {
-	echo "$(printf '%q' "$(cat ._key/$1)")"
+	echo $(printf '%q' "$(cat ._key/$1)")
 }
 
 # Function to handle parsing of input messages
-function parseur()
+function parser()
 {
 	while IFS=  read -r message
     do
@@ -50,11 +50,11 @@ function parseur()
             message=${message#"$'"} && message=${message%"'"}
             echo -e "$message" > ._key/server.pub
         else
-            message=$(decrypt "$message" client.pem)
+            message=$(uncrypt "$message" client.pem)
             if [[ ${message:0:2} == "\$'" ]]
             then
                 message=${message#"$'"} && message=${message%"'"}
-                echo -e "$message"
+                echo -e $message
             elif [[ ${message:0:3} == ":§:" ]]
             then
                 message=${message#":§:"}
@@ -66,7 +66,7 @@ function parseur()
             else
                 echo "$message"
             fi
-            if cat ._key/connect
+            if $(cat ._key/connect)
             then
                 echo -n -e "\e[31m@user\e[0m:\e[34m$(date)\e[0m\$ " >&2
             fi
@@ -110,7 +110,7 @@ function connection()
     echo >&2
     send server.pub "is_passwd $passwd"
     sleep 1
-    if ! cat ._key/connect
+    if ! $(cat ._key/connect)
     then
         connection true
     fi
@@ -139,8 +139,26 @@ function start()
 	done
 }
 
+# Parse arguments
+ip=localhost
+port=8080
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -i)	#Set the ip of the server you want to connect on
+			shift
+			ip="$1"
+			;;
+		-p)	#Set the port of the server you want to connect on
+			shift
+			port="$1"
+			;;
+    esac
+    shift
+done
+
 # Check if the server is available
-if ! nc -v -z -w 3 localhost 12345 &> /dev/null
+if ! nc -v -z -w 3 $ip $port &> /dev/null
 then
     echo ">>>The server is down"
     exit
@@ -148,5 +166,5 @@ else
     echo ">>>The server is up"
     echo ">>>Connecting"
     gen_key client.pem client.pub
-    start | nc -q 0 localhost 12345 | parseur
+    start | nc -q 0 $ip $port | parser
 fi
