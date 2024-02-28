@@ -23,7 +23,7 @@ function crypt()
 # ARGS: 1->message 2->private key
 function decrypt()
 {
-	echo -n "$1" | base64 -d | openssl pkeyutl -decrypt -inkey ._key/"$2"
+  echo -n "$1" | base64 -d | openssl pkeyutl -decrypt -inkey ._key/"$2"
 }
 
 # Function to send an encrypted message using the recipient's public key
@@ -37,20 +37,20 @@ function send()
 # ARGS: 1->Key to send
 function send_key()
 {
-	echo $(printf '%q' "$(cat ._key/$1)")
+	echo "$(printf '%q' "$(cat ._key/"$1")")"
 }
 
 # Function to get the encrypted password
 function get_crypt_passwd()
 {
-	echo -n $(cat ._key/passwd.crypt)
+	echo -n "$(cat ./._key/passwd.crypt)"
 }
 
 # Function to set the encrypted password
 # ARGS: 1->New encrypted password 2->public key to encrypt
 function set_crypt_passwd()
 {
-	crypt $1 $2 > ._key/passwd.crypt
+	crypt "$1" "$2" > ._key/passwd.crypt
 }
 
 # Function to test the entered password
@@ -92,25 +92,30 @@ function set_passwd()
 function parser()
 {
 	local input="$1"
-    if echo "$input" | grep -q -E "BEGIN PUBLIC KEY" &> /dev/null
+  if echo "$input" | grep -q -E "BEGIN PUBLIC KEY" &> /dev/null
+  then
+    input=${input#"$'"} && input=${input%"'"}
+    echo -e "$input" > ._key/client.pub
+    send_key server.pub
+  else
+    if [ -n "$input" ]
     then
-		input=${input#"$'"} && input=${input%"'"}
-        echo -e "$input" > ._key/client.pub
-		send_key server.pub
-    else
-		if ! [ -z "$input" ]
-		then
-			input=$(decrypt $input server.pem)
-			if [[ ${input:0:3} == ":§:" ]]
-			then
-				input=${input#":§:"}
-        		echo -e "\e[31m@server\e[0m:\e[34m$(date)\e[0m! $input" >&2
-			else
-				command=$(printf '%q' "$(eval $input 2>&1)")
-        		send client.pub "$command"
-			fi
-		fi
+      input=$(decrypt "$input" server.pem)
+      if [[ ${input:0:3} == ":§:" ]]
+      then
+        input=${input#":§:"}
+        echo -e "\e[31m@server\e[0m:\e[34m$(date)\e[0m! $input" >&2
+      else
+        if ! $(cat ._key/connect)
+        then
+          command=$(eval "$input")
+        else
+          command=$({ cd "$(cat "$userPath")" && eval "$input && pwd > \"$userPath\"" 3>&2 2>&1 1>&3 | cut -f3- -d':' | sed 's/^.//'| sed 's/^/\x1b[31m>>>Error\x1b[0m: /';} 2>&1)
+        fi
+        send client.pub "$command"
+      fi
     fi
+  fi
 }
 
 # Function to handle server operations
@@ -139,21 +144,21 @@ port=8080
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        -n)	#Set a new password for the server
-			gen_key server.pem server.pub
-			until set_passwd
-			do
-				true
-			done
-			;;
-        -i)	#Set a specific ip for the server
-			shift
-			ip="$1"
-			;;
-		-p)	#Set a specific port for the server
-			shift
-			port="$1"
-			;;
+      -n)	#Set a new password for the server
+        gen_key server.pem server.pub
+        until set_passwd
+        do
+          true
+        done
+        ;;
+      -i)	#Set a specific ip for the server
+        shift
+        ip="$1"
+        ;;
+      -p)	#Set a specific port for the server
+        shift
+        port="$1"
+        ;;
     esac
     shift
 done
@@ -170,8 +175,11 @@ fi
 
 echo ">>>Server initialized"
 
+# Temp file to store the user actual path
+userPath=$(mktemp)
+
 # Continuously listen for incoming connections and process them
 while true
 do
-	nc -l $ip $port < ./.fifo | server > ./.fifo
+	  nc -l "$ip" "$port" < ./.fifo | server > ./.fifo
 done
